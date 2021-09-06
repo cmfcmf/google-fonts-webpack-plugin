@@ -100,16 +100,6 @@ describe("GoogleWebfonts", () => {
 			})
 		})
 
-		describe("#download", () => {
-			it("fetches font files", () => (
-				promise.then(query => query.download())
-					.then(res => {
-						console.log(res)
-						res.status.should.equal(200)
-					})
-			))
-		})
-
 		describe("#files", () => {
 			it("returns a list of font files", () => (
 				promise.then(query => query.files())

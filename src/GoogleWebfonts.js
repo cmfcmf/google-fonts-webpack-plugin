@@ -1,12 +1,9 @@
 const _ = require("lodash")
 const path = require("path")
 const yauzl = require("yauzl")
-const fetch = require("node-fetch")
-const os = require("os")
-const md5 = require("md5")
-const fs = require("fs")
 const { RawSource } = require("webpack-sources")
 const FontTypes = require("./FontTypes")
+const { readCachedOrFetch, fetchAndFallbackToCached } = require("./fetch");
 
 const API_URL = "https://google-webfonts-helper.herokuapp.com/api/fonts"
 
@@ -22,10 +19,6 @@ const FONT_FACE = ({ fontFamily, fontStyle, fontWeight, display, src, fallback }
 	${src.length ? `src: ${src.join(",\n\t\t")};` : ""}
 }
 `
-
-function tmpFile(filename) {
-	return path.join(os.tmpdir(), filename);
-}
 
 function getVariantCss({ variant, info, font, formats, display, fontsPath, noLocalInCss }) {
 	const src = !!noLocalInCss
@@ -108,45 +101,11 @@ class Selection {
 		return url
 	}
 
-	download() {
-		if(this._response) {
-			return Promise.resolve(this._response)
-		}
-		return fetch(this.getZipURL())
-			.then(response => {
-				if(response.status !== 200) {
-					throw new Error(response.statusText)
-				}
-				this._response = response
-				return response
-			})
-	}
-
-	// Download zip, but return cached if there is one
-	downloadWithCache() {
-		const url = this.getZipURL()
-		const cacheFilePath = tmpFile("google-fonts-webpack-" + md5(url) + ".zip")
-		if (fs.existsSync(cacheFilePath)) {
-			return Promise.resolve(fs.readFileSync(cacheFilePath))
-		} else {
-			return new Promise((resolve, reject) => {
-				this.download()
-					.then(response => response.buffer())
-					.then(buffer => {
-						fs.writeFile(cacheFilePath, buffer, (err) => {
-							if (err) console.log("Couldn't cache file")
-						})
-						resolve(buffer)
-					})
-			})
-		}
-	}
-
 	files() {
 		if(this._files) {
 			return Promise.resolve(this._files)
 		}
-		return this.downloadWithCache()
+		return readCachedOrFetch(this.getZipURL(), "buffer")
 			.then(buffer => new Promise((resolve, reject) => {
 				this._files = {}
 				yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zipFile) => {
@@ -238,13 +197,7 @@ class Font {
 		if(subsets) {
 			url += "subsets=" + subsets.join(",")
 		}
-		return fetch(url)
-			.then(response => {
-				if(response.status !== 200) {
-					throw new Error(response.statusText)
-				}
-				return response.json()
-			})
+		return fetchAndFallbackToCached(url, "json")
 			.then(info => {
 				this._info = info
 				return info
@@ -265,13 +218,7 @@ class GoogleWebfonts {
 		if(this._fonts) {
 			return Promise.resolve(this._fonts)
 		} else {
-			return fetch(this.url)
-				.then(response => {
-					if(response.status !== 200) {
-						throw new Error(response.statusText)
-					}
-					return response.json()
-				})
+			return fetchAndFallbackToCached(this.url, "json")
 				.then(fonts => fonts.map(font => new Font(this.url, font)))
 				.then(fonts => {
 					this._fonts = fonts
